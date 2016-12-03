@@ -5,6 +5,7 @@ import edu.wpi.first.wpilibj.ADXRS450_Gyro;
 import edu.wpi.first.wpilibj.AnalogInput;
 import edu.wpi.first.wpilibj.AnalogTrigger;
 import edu.wpi.first.wpilibj.CameraServer;
+import edu.wpi.first.wpilibj.Counter;
 import edu.wpi.first.wpilibj.CounterBase;
 import edu.wpi.first.wpilibj.Encoder;
 import edu.wpi.first.wpilibj.IterativeRobot;
@@ -31,14 +32,17 @@ public class Robot extends IterativeRobot {
     String autoSelected;
     SendableChooser chooser;
     
+    double robotX, robotY, robotAngle;
+    
     VictorSP leftF, leftR, rightF, rightR;
     RobotDrive drive;
     Joystick stick;
     ADXRS450_Gyro gyro;
     AnalogInput analogEncL, analogEncR;
     AnalogTrigger analogTrigL, analogTrigR;
+    Counter encLCount, encRCount;
     Encoder encL, encR, grayEnc;
-    Servo camX, camY;
+    //Servo camX, camY;
     
     Vision vis;
 
@@ -52,9 +56,12 @@ public class Robot extends IterativeRobot {
         chooser.addObject("My Auto", customAuto);
         SmartDashboard.putData("Auto choices", chooser);
         
-        camX = new Servo(8);
+        robotX = robotY = 0;
+        robotAngle = 0;
+        
+        /*camX = new Servo(8);
         camY = new Servo(9);
-        vis = new Vision("cam2");
+        vis = new Vision("cam2");*/
         
         leftF = new VictorSP(2);
         leftR = new VictorSP(0);
@@ -68,10 +75,16 @@ public class Robot extends IterativeRobot {
         analogEncL = new AnalogInput(0);
         analogEncR = new AnalogInput(1);
         analogTrigL = new AnalogTrigger(analogEncL);
+        analogTrigL.setFiltered(true);
+        encLCount = new Counter(analogTrigL);
         //analogTrigL.setLimitsRaw(lower, upper);
         analogTrigR = new AnalogTrigger(analogEncR);
+        analogTrigR.setFiltered(true);
+        encRCount = new Counter(analogTrigR);
         encL = new Encoder(0, 1, true, CounterBase.EncodingType.k4X);
+        encL.setDistancePerPulse(1/28.9);
         encR = new Encoder(2, 3, false, CounterBase.EncodingType.k4X);
+        encR.setDistancePerPulse(1/20.5);
         grayEnc = new Encoder(4, 5, false, CounterBase.EncodingType.k4X);
         gyro = new ADXRS450_Gyro();
         gyro.calibrate();
@@ -95,6 +108,8 @@ public class Robot extends IterativeRobot {
 	 */
     public void autonomousInit() {
     	gyro.reset();
+    	encL.reset();
+    	encR.reset();
     }
     
     /**
@@ -102,7 +117,9 @@ public class Robot extends IterativeRobot {
      */
     public void autonomousPeriodic() {
     	updateDashboard();
-    	drive.drive(-0.2, -gyro.getAngle()*0.03);
+    	drive.drive(-0.2, -gyro.getAngle()*0.02); //Line follower
+    	//updatePosition();
+    	//driveToTarget(50, 50);
     	Timer.delay(0.005);
     }
     
@@ -116,7 +133,36 @@ public class Robot extends IterativeRobot {
     public void teleopPeriodic() {
         drive.arcadeDrive(stick);
         updateDashboard();
-        
+        updatePosition();
+        if(stick.getTrigger()){
+        	while(((encL.getDistance() + encR.getDistance()) / 2) < 220){
+            	drive.drive(-0.3, -gyro.getAngle()*0.02);
+        	}
+        	while(gyro.getAngle() > -90){
+            	drive.drive(-0.2, -1.0);
+        	}
+        	encL.reset();
+        	encR.reset();
+        	while(((encL.getDistance() + encR.getDistance()) / 2) < 60){
+            	drive.drive(-0.3, -(gyro.getAngle()+90)*0.02);
+        	}
+        	while(gyro.getAngle() < 90){
+            	drive.drive(-0.2, 1.0);
+        	}
+        	encL.reset();
+        	encR.reset();
+        	while(((encL.getDistance() + encR.getDistance()) / 2) < 60){
+            	drive.drive(-0.3, -(gyro.getAngle()-90)*0.02);
+        	}
+        	while(gyro.getAngle() > 180){
+            	drive.drive(-0.2, -1.0);
+        	}
+        	encL.reset();
+        	encR.reset();
+        	while(((encL.getDistance() + encR.getDistance()) / 2) < 220){
+            	drive.drive(-0.3, -gyro.getAngle()*0.02);
+        	}
+        }
         Timer.delay(0.005);
     }
     
@@ -132,19 +178,50 @@ public class Robot extends IterativeRobot {
     	updateDashboard();
     }
     
+    private void updatePosition(){
+    	double distance = (encL.getRaw() + encR.getRaw()) / 2;
+    	encL.reset();
+    	encR.reset();
+    	robotAngle = Math.toRadians(gyro.getAngle());
+    	robotX += Math.sin(robotAngle) * distance;
+    	robotY += Math.cos(robotAngle) * distance;
+    	SmartDashboard.putNumber("Robot X", robotX);
+    	SmartDashboard.putNumber("Robot Y", robotY);
+    }
+    
+    private void driveToTarget(double targetX, double targetY){
+    	//Turn to target
+    	double targetAngle = Math.atan((targetX-robotX) / (targetY-robotY));
+    	SmartDashboard.putNumber("Target Angle", targetAngle);
+    	while(Math.abs(targetAngle-robotAngle) > 0.1){
+	    	if(targetAngle-robotAngle >= 0){
+	    		drive.drive(0.3, -1.0);
+	    	}else{
+	    		drive.drive(0.3, 1.0);
+	    	}
+	    	updatePosition();
+	    	updateDashboard();
+	    	Timer.delay(0.002);
+    	}
+    	drive.drive(0, 0);
+    }
+    
     private void updateDashboard(){
     	SmartDashboard.putData("Left Front", leftF);
         SmartDashboard.putData("Left Rear", leftR);
         SmartDashboard.putData("Right Front", rightF);
         SmartDashboard.putData("Right Rear", rightR);
         SmartDashboard.putData("Gyro" , gyro);
+        SmartDashboard.putNumber("Gyro angle", robotAngle);
         SmartDashboard.putData("Encoder Left", encL);
         SmartDashboard.putData("Encoder Right", encR);
+        SmartDashboard.putNumber("Left enc", encL.getRaw());
+        SmartDashboard.putNumber("Right enc", encR.getRaw());
         SmartDashboard.putData("Grayhill Encoder", grayEnc);
-        SmartDashboard.putData("Analog Encoder Left", analogEncL);
-        SmartDashboard.putData("Analog Encoder Right", analogEncR);
-        SmartDashboard.putData("Camera X", camX);
-        SmartDashboard.putData("Camera Y", camY);
+        SmartDashboard.putData("Analog Encoder Left", encLCount);
+        SmartDashboard.putData("Analog Encoder Right", encRCount);
+        /*SmartDashboard.putData("Camera X", camX);
+        SmartDashboard.putData("Camera Y", camY);*/
     }
     
 }
