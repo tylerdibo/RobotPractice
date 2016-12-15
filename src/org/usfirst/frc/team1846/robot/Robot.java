@@ -11,6 +11,8 @@ import edu.wpi.first.wpilibj.Encoder;
 import edu.wpi.first.wpilibj.IterativeRobot;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.RobotDrive;
+import edu.wpi.first.wpilibj.SerialPort;
+import edu.wpi.first.wpilibj.SerialPort.Port;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.VictorSP;
@@ -45,6 +47,9 @@ public class Robot extends IterativeRobot {
     //Servo camX, camY;
     
     Vision vis;
+    PIDTest pid;
+    
+    SerialPort serial;
 
     /**
      * This function is run when the robot is first started up and should be
@@ -89,6 +94,10 @@ public class Robot extends IterativeRobot {
         gyro = new ADXRS450_Gyro();
         gyro.calibrate();
         
+        pid = new PIDTest(drive, encL, gyro);
+        
+        serial = new SerialPort(115200, Port.kOnboard);
+        
         LiveWindow.addActuator("Drive", "Left Front", leftF);
         LiveWindow.addActuator("Drive", "Left Rear", leftR);
         LiveWindow.addActuator("Drive", "Right Front", rightF);
@@ -110,6 +119,7 @@ public class Robot extends IterativeRobot {
     	gyro.reset();
     	encL.reset();
     	encR.reset();
+    	pid.goToSetpoint(100);
     }
     
     /**
@@ -117,14 +127,16 @@ public class Robot extends IterativeRobot {
      */
     public void autonomousPeriodic() {
     	updateDashboard();
-    	drive.drive(-0.2, -gyro.getAngle()*0.02); //Line follower
+    	//drive.drive(-0.2, -gyro.getAngle()*0.02); //Line follower
     	//updatePosition();
     	//driveToTarget(50, 50);
+    	
     	Timer.delay(0.005);
     }
     
     public void teleopInit(){
     	gyro.reset();
+    	pid.disable();
     }
 
     /**
@@ -134,7 +146,20 @@ public class Robot extends IterativeRobot {
         drive.arcadeDrive(stick);
         updateDashboard();
         updatePosition();
+        /*byte[] bytes = {(byte) 255};
+        serial.write(bytes, 1);*/
+        
         if(stick.getTrigger()){
+        	driveInches(48);
+        	turnToDegrees(90);
+        	driveInches(48);
+        	turnToDegrees(180);
+        	driveInches(48);
+        	turnToDegrees(270);
+        	driveInches(48);
+        	turnToDegrees(360);
+        }
+        /*if(stick.getTrigger()){
         	while(((encL.getDistance() + encR.getDistance()) / 2) < 220){
             	drive.drive(-0.3, -gyro.getAngle()*0.02);
         	}
@@ -162,12 +187,15 @@ public class Robot extends IterativeRobot {
         	while(((encL.getDistance() + encR.getDistance()) / 2) < 220){
             	drive.drive(-0.3, -gyro.getAngle()*0.02);
         	}
-        }
+        }*/
         Timer.delay(0.005);
     }
     
     public void testInit(){
     	gyro.reset();
+    	encL.reset();
+    	encR.reset();
+    	pid.initializeTestMode();
     }
     
     /**
@@ -206,7 +234,44 @@ public class Robot extends IterativeRobot {
     	drive.drive(0, 0);
     }
     
+    private void driveInches(double inches){
+    	encL.reset();
+    	pid.goToSetpoint(inches);
+    	Timer.delay(0.2);
+    	while(encR.getRate() != 0 && encL.getRate() != 0);
+    	pid.disable();
+    }
+    
+    private void turnToDegrees(double angle){
+    	if((angle-gyro.getAngle()) > 0){
+    		while(gyro.getAngle() < (angle-20)){
+               	drive.drive(-0.2, 1.0);
+        	}
+    	}else{
+    		while(gyro.getAngle() > (angle+20)){
+	        	drive.drive(-0.2, -1.0);
+	    	}
+    	}
+    	
+    	/*if(angle > 0){
+    		while(gyro.getAngle() < angle){
+               	drive.drive(-(angle-gyro.getAngle())*0.0075, 1.0);
+        	}
+    	}else{
+    		while(gyro.getAngle() > angle){
+	        	drive.drive((angle-gyro.getAngle())*0.0075, -1.0);
+	    	}
+    	}*/
+    }
+    
     private void updateDashboard(){
+    	pid.updateDashboard();
+    	byte[] serialNums = serial.read(serial.getBytesReceived());
+    	if(serialNums.length > 0){
+    		SmartDashboard.putNumber("Serial Port", serialNums[serialNums.length-1]);
+    	}
+    	SmartDashboard.putNumber("Speed L", encL.getRate());
+    	SmartDashboard.putNumber("Speed R", encR.getRate());
     	SmartDashboard.putData("Left Front", leftF);
         SmartDashboard.putData("Left Rear", leftR);
         SmartDashboard.putData("Right Front", rightF);
