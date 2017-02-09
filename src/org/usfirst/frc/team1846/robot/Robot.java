@@ -1,13 +1,17 @@
 
 package org.usfirst.frc.team1846.robot;
 
+import java.io.IOException;
+
 import edu.wpi.first.wpilibj.ADXRS450_Gyro;
 import edu.wpi.first.wpilibj.AnalogInput;
 import edu.wpi.first.wpilibj.AnalogTrigger;
+import edu.wpi.first.wpilibj.BuiltInAccelerometer;
 import edu.wpi.first.wpilibj.CameraServer;
 import edu.wpi.first.wpilibj.Counter;
 import edu.wpi.first.wpilibj.CounterBase;
 import edu.wpi.first.wpilibj.Encoder;
+import edu.wpi.first.wpilibj.I2C;
 import edu.wpi.first.wpilibj.IterativeRobot;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.RobotDrive;
@@ -44,12 +48,15 @@ public class Robot extends IterativeRobot {
     AnalogTrigger analogTrigL, analogTrigR;
     Counter encLCount, encRCount;
     Encoder encL, encR, grayEnc;
+    BuiltInAccelerometer accel;
     //Servo camX, camY;
     
     Vision vis;
     PIDTest pid;
+    UDP udp;
     
     SerialPort serial;
+    I2C i2c;
 
     /**
      * This function is run when the robot is first started up and should be
@@ -95,8 +102,18 @@ public class Robot extends IterativeRobot {
         gyro.calibrate();
         
         pid = new PIDTest(drive, encL, gyro);
+        try {
+			udp = new UDP();
+			udp.start();
+		} catch (IOException e) {
+			//udp initialization failed
+			e.printStackTrace();
+		}
         
-        serial = new SerialPort(115200, Port.kOnboard);
+        //serial = new SerialPort(115200, Port.kUSB);
+        i2c = new I2C(I2C.Port.kOnboard, 0x11);
+        
+        accel = new BuiltInAccelerometer();
         
         LiveWindow.addActuator("Drive", "Left Front", leftF);
         LiveWindow.addActuator("Drive", "Left Rear", leftR);
@@ -119,7 +136,7 @@ public class Robot extends IterativeRobot {
     	gyro.reset();
     	encL.reset();
     	encR.reset();
-    	pid.goToSetpoint(100);
+    	//pid.goToSetpoint(60);
     }
     
     /**
@@ -127,7 +144,7 @@ public class Robot extends IterativeRobot {
      */
     public void autonomousPeriodic() {
     	updateDashboard();
-    	//drive.drive(-0.2, -gyro.getAngle()*0.02); //Line follower
+    	drive.drive(-0.2, -gyro.getAngle()*0.02); //Line follower
     	//updatePosition();
     	//driveToTarget(50, 50);
     	
@@ -238,38 +255,30 @@ public class Robot extends IterativeRobot {
     	encL.reset();
     	pid.goToSetpoint(inches);
     	Timer.delay(0.2);
-    	while(encR.getRate() != 0 && encL.getRate() != 0);
+    	while(encR.getRate() != 0 && encL.getRate() != 0){
+    		Timer.delay(0.1);
+    	}
     	pid.disable();
     }
     
     private void turnToDegrees(double angle){
-    	if((angle-gyro.getAngle()) > 0){
-    		while(gyro.getAngle() < (angle-20)){
-               	drive.drive(-0.2, 1.0);
-        	}
-    	}else{
-    		while(gyro.getAngle() > (angle+20)){
-	        	drive.drive(-0.2, -1.0);
-	    	}
+    	pid.turnToSetpoint(angle); //*1.04
+    	Timer.delay(0.2);
+    	while(encR.getRate() != 0 && encL.getRate() != 0){
+    		Timer.delay(0.1);
     	}
-    	
-    	/*if(angle > 0){
-    		while(gyro.getAngle() < angle){
-               	drive.drive(-(angle-gyro.getAngle())*0.0075, 1.0);
-        	}
-    	}else{
-    		while(gyro.getAngle() > angle){
-	        	drive.drive((angle-gyro.getAngle())*0.0075, -1.0);
-	    	}
-    	}*/
+    	pid.disable();
     }
     
     private void updateDashboard(){
     	pid.updateDashboard();
-    	byte[] serialNums = serial.read(serial.getBytesReceived());
+    	/*byte[] serialNums = serial.read(serial.getBytesReceived());
     	if(serialNums.length > 0){
-    		SmartDashboard.putNumber("Serial Port", serialNums[serialNums.length-1]);
-    	}
+    		SmartDashboard.putNumber("USB", serialNums[serialNums.length-1]);
+    	}*/
+    	byte[] i2cData = new byte[1];
+    	i2c.read(0xBB, 1, i2cData);
+    	SmartDashboard.putNumber("I2C Data", i2cData[0]);
     	SmartDashboard.putNumber("Speed L", encL.getRate());
     	SmartDashboard.putNumber("Speed R", encR.getRate());
     	SmartDashboard.putData("Left Front", leftF);
@@ -277,7 +286,7 @@ public class Robot extends IterativeRobot {
         SmartDashboard.putData("Right Front", rightF);
         SmartDashboard.putData("Right Rear", rightR);
         SmartDashboard.putData("Gyro" , gyro);
-        SmartDashboard.putNumber("Gyro angle", robotAngle);
+        SmartDashboard.putNumber("Gyro angle", gyro.getAngle());
         SmartDashboard.putData("Encoder Left", encL);
         SmartDashboard.putData("Encoder Right", encR);
         SmartDashboard.putNumber("Left enc", encL.getRaw());
@@ -285,6 +294,7 @@ public class Robot extends IterativeRobot {
         SmartDashboard.putData("Grayhill Encoder", grayEnc);
         SmartDashboard.putData("Analog Encoder Left", encLCount);
         SmartDashboard.putData("Analog Encoder Right", encRCount);
+        SmartDashboard.putData("Accelerometer", accel);
         /*SmartDashboard.putData("Camera X", camX);
         SmartDashboard.putData("Camera Y", camY);*/
     }
